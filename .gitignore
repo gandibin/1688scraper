@@ -1,0 +1,30 @@
+# Python虚拟环境
+myenv/
+
+# Python文件
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+
+# 配置文件
+.env
+*.ini
+*.cfg
+*config.py
+
+# IDE配置文件
+.project
+.pydevproject
+.settings/
+.idea/
+
+# 日志文件
+*.log
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*.swo
