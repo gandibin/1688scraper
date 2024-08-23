@@ -3,7 +3,6 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import urllib
-from nt import link
 
 class SearchScraper:
     def __init__(self):
