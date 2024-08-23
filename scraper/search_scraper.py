@@ -3,6 +3,7 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import urllib
+from nt import link
 
 class SearchScraper:
     def __init__(self):
@@ -47,54 +48,81 @@ class SearchScraper:
         return search_url
 
     def scroll_to_bottom(self):
-        # 计算每次滚动的高度（10%）
-        scroll_increment = "document.body.scrollHeight * 0.08"
-        total_scroll_time = 7.2  # 总滚动时间5秒
-        interval = 0.6  # 每0.5秒滚动一次
+        scroll_increment = "document.body.scrollHeight * 0.1"
+        total_scroll_time = 10  # 总滚动时间10秒
+        interval = 1  # 每0.6秒滚动一次
         
         for _ in range(int(total_scroll_time / interval)):
             self.driver.execute_script(f"window.scrollBy(0, {scroll_increment});")
             time.sleep(interval)
         time.sleep(2)
+        
+        
+    def get_urls(self,url):
+        #打开新的页面
+        self.driver.get(url)
+        # 滚动到页面底部
+        self.scroll_to_bottom()
+        # 获取 class 为 "feeds-wrapper" 的 div 下所有的 <a> 标签
+        feeds_wrapper = self.driver.find_element(By.CLASS_NAME, "feeds-wrapper")
+        links = feeds_wrapper.find_elements(By.TAG_NAME, "a")
+        
+        # 获取以 https://detail.1688.com 开头的链接
+        urls = [link.get_attribute("href") for link in links if link.get_attribute("href").startswith("https://detail.1688.com")]
+        return urls
 
     def search_keyword(self, keyword):
         options = webdriver.ChromeOptions()
         options.debugger_address = f"localhost:{self.remote_debugging_port}"
         
         self.driver = webdriver.Chrome(options=options)
+        self.driver.get("https://www.1688.com")
+        url = self.generate_search_url(keyword)
+        self.driver.get(url)
         
-        try:
-            self.driver.get("https://www.1688.com")
-            url = self.generate_search_url(keyword)
-            self.driver.get(url)
-            print(f"已导航至: {url}")
-            
-            # 滚动到页面底部
-            self.scroll_to_bottom()
-            
-            # 获取 class 为 "feeds-wrapper" 的 div 下所有的 <a> 标签
-            feeds_wrapper = self.driver.find_element(By.CLASS_NAME, "feeds-wrapper")
-            links = feeds_wrapper.find_elements(By.TAG_NAME, "a")
-            
-            # 获取以 https://detail.1688.com 开头的链接
-            urls = [link.get_attribute("href") for link in links if link.get_attribute("href").startswith("https://detail.1688.com")]
+        print(f"已导航至: {url}")
+        
+        # 滚动到页面底部
+        self.scroll_to_bottom()
 
-            print(f"找到的链接数量: {len(urls)}")
-            for url in urls:
-                print(url)
-
-            return urls
-
-        except Exception as e:
-            print(f"搜索加载失败: {e}")
-        finally:
-            self.driver.quit()
+        # 获取 class 为 "feeds-wrapper" 的 div 下所有的 <a> 标签
+        feeds_wrapper = self.driver.find_element(By.CLASS_NAME, "feeds-wrapper")
+        links = feeds_wrapper.find_elements(By.TAG_NAME, "a")
+        
+        # 获取以 https://detail.1688.com 开头的链接
+        urls = [link.get_attribute("href") for link in links if link.get_attribute("href").startswith("https://detail.1688.com")]
+        
+        all_urls = []
+        all_urls.extend(urls)
+        
+        # 获取总页数
+        total_pages_element = self.driver.find_element(By.CLASS_NAME, "fui-paging-num")
+        total_pages = int(total_pages_element.text)
+        print(f"Total pages found: {total_pages}")
+        # 最多抓取10页
+        max_pages = min(total_pages, 10)
+        i = 2
+        for page in range(1, max_pages):
+            time.sleep(5)
+            new_links = f"{url}&beginPage={i}"
+            print(f"new link is:{new_links}")
+            urls =self.get_urls(new_links)
+            all_urls.extend(urls)
+            i =i +1
+            
+        return all_urls
+            
+        
 
     def execute_search(self, keyword):
         self.start_chrome_with_debugging()
-        self.search_keyword(keyword)
-        #self.stop_chrome_debugging()  # 自动停止调试进程
-
-if __name__ == "__main__":
-    scraper = SearchScraper()
-    scraper.execute_search("交换机")
+        urls = self.search_keyword(keyword)
+        
+        file_name = f"{keyword}.txt"
+        with open(file_name, "w", encoding="utf-8") as file:
+            for url in urls:
+                print(url)
+                file.write(url + "\n")
+        print(f"URLs have been saved to {file_name}")
+        self.stop_chrome_debugging()
+            
