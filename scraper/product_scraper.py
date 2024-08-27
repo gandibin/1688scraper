@@ -4,14 +4,31 @@ from selenium.webdriver.common.by import By
 import subprocess
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import TimeoutException
+import os  
+import getpass
+from asyncio.tasks import wait
 
 
 class ProductScraper:
     def __init__(self):
-        self.chrome_path = r"C:\Users\Xingwei-Tech\AppData\Local\Google\Chrome\Application\chrome.exe"
+        self.chrome_path = self.get_chrome_path_by_user()
         self.user_data_dir = "C:/ChromeDevSession"
         self.remote_debugging_port = 9222
         self.driver = None
+    
+    def get_chrome_path_by_user(self):
+        # 获取当前用户名
+        username = getpass.getuser()
+        # 根据用户名构造 Chrome 的路径
+        chrome_base_path = r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe"
+        chrome_path = chrome_base_path.format(username)
+
+        # 检查路径是否存在
+        if os.path.exists(chrome_path):
+            return chrome_path
+        else:
+            raise FileNotFoundError(f"Chrome executable not found for user {username} at {chrome_path}")
+
 
     def start_chrome_with_debugging(self):
         self.chrome_process = subprocess.Popen([
@@ -69,7 +86,7 @@ class ProductScraper:
         # 等待页面加载完成，等待时间可以根据需要调整
         time.sleep(3)  # 等待基础页面加载
         self.wait_for_page_load_complete()
-        self.driver.execute_script(f"window.scrollBy(0, 100);")
+        self.driver.execute_script(f"window.scrollBy(0, 400);")
     
         # 获取页面标题
         title = self.driver.title
@@ -82,9 +99,12 @@ class ProductScraper:
                 expand_button.click()  # 点击元素
                 print("Clicked on expand button.")
             else:
-                print("Expand button not found.")
-        except Exception as e:
-            print(f"Expand button not found or click failed: {e}")
+                pass
+        except:
+            pass
+        
+            # 打印 SKU 详情
+        self.print_sku_details()
     
         return {"title": title}  # 可以根据需要返回更多数据
 
@@ -103,6 +123,7 @@ class ProductScraper:
             if data:
                 product_details.append((data))
                 print(data)
+            time.sleep(5)
         
         self.driver.quit()
         return product_details
@@ -111,6 +132,65 @@ class ProductScraper:
         print("start pro")
         self.start_chrome_with_debugging()
         self.get_multiple_product_details(urls)
+        
+        
+        
+        
+        
+    def print_sku_details(self):
+        company_element = self.driver.find_element(By.CSS_SELECTOR, "#hd_0_container_0 > div:nth-child(1) > div:nth-child(2) > div > div:nth-child(1) > div:nth-child(3) > div > div:nth-child(1) > span")
+        company_name = company_element.text.strip()
+        print(company_name)
+        try:
+            # 尝试查找 class="selector-table" 的 div
+            sku_table = self.driver.find_element(By.CLASS_NAME, "selector-table")
+            header_elements =  sku_table.find_elements(By.CSS_SELECTOR, "div.next-table-header-inner th")
+            headers = [header.text for header in header_elements]
+            # Extract table rows
+            body_elements = self.driver.find_elements(By.CSS_SELECTOR, "div.next-table-body table tbody tr.next-table-row")
+            # 获取 class="summary-num" 的数值
+            summary_num_element = self.driver.find_element(By.CLASS_NAME, "summary-num")
+            summary_num_value = int(summary_num_element.text.strip())
+            print(f"sku quantity is {summary_num_value}")
+            for row in zip(body_elements,range(summary_num_value)):
+                # Extract individual cell data
+                row_dict = {}
+                cells = row.find_elements(By.TAG_NAME, "td")
+                i =0 
+                for cell in cells:
+                    row_dict[headers[i]] = cell.text
+                    i = i+1
+                
+                print(f"{row_dict}")
+                j = j+1
+                if j>summary_num_value:
+                    break
+                    
+            
+
+
+        except Exception as e:
+            print(f"try sku wraper")
+            
+            try:
+                # 如果找不到 'selector-table'，再查找 class="pc-sku-wrapper" 的 div
+                sku_wrapper = self.driver.find_element(By.CLASS_NAME, "pc-sku-wrapper")
+                # 查找所有 class="sku-item-wrapper" 的 div，其中包含每个 SKU 的详细信息
+                sku_items = sku_wrapper.find_elements(By.CLASS_NAME, "sku-item-wrapper")
+                for sku_item in sku_items:
+                    # 获取产品名称
+                    name_element = sku_item.find_element(By.CLASS_NAME, "sku-item-name")
+                    name = name_element.text.strip()
+                    # 获取价格信息
+                    price_element = sku_item.find_element(By.CLASS_NAME, "discountPrice-price")
+                    price = price_element.text.strip()
+                    print(f"Found SKU: {name}, Price: {price}")
+
+            except Exception as e:
+                print(f"'pc-sku-wrapper' not found")
+
+
+
 
 if __name__ == '__main__':
     urls= ["https://detail.1688.com/offer/717125263963.html",
@@ -120,7 +200,8 @@ if __name__ == '__main__':
             "https://detail.1688.com/offer/773959819091.html",
             "https://detail.1688.com/offer/673053584921.html"
            ]
+    #urls = ["https://detail.1688.com/offer/821154986517.html"]
     ProductScraper = ProductScraper()
     ProductScraper.execute_detail(urls)
-    print('initial product class')
-
+    print("all urls check,wait 20 second and then close browser")
+    ProductScraper.stop_chrome_debugging()
