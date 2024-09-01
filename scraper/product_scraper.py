@@ -9,36 +9,51 @@ from selenium.common.exceptions import TimeoutException
 import tkinter as tk
 from tkinter import messagebox
 from urllib.parse import urlparse
+import pandas as pd
+from openpyxl import load_workbook
+import sqlite3
 
 class ProductScraper:
     def __init__(self):
-        self.chrome_path = self.get_chrome_path_by_user()
-        self.user_data_dir = "C:/ChromeDevSession"
-        self.remote_debugging_port = 9222
         self.driver = None
+        self.chrome_process =None
     
-    def get_chrome_path_by_user(self):
-        username = getpass.getuser()
-        chrome_base_path = r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe"
-        chrome_path = chrome_base_path.format(username)
-        if os.path.exists(chrome_path):
-            return chrome_path
-        else:
-            raise FileNotFoundError(f"Chrome executable not found for user {username} at {chrome_path}")
+
         
 
     def start_chrome_with_debugging(self):
+        # 获取当前用户的用户名并构建Chrome的路径
+        username = getpass.getuser()
+        chrome_base_path = r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe"
+        chrome_path = chrome_base_path.format(username)
+    
+        # 检查Chrome可执行文件是否存在
+        if not os.path.exists(chrome_path):
+            raise FileNotFoundError(f"未找到用户 {username} 的Chrome可执行文件，路径为 {chrome_path}")
+        
+        # 定义用户数据目录和远程调试端口
+        user_data_dir = "C:/ChromeDevSession"
+        remote_debugging_port = 9222
+        
+        # 启动带有远程调试功能的Chrome
         self.chrome_process = subprocess.Popen([
-            self.chrome_path,
-            f'--remote-debugging-port={self.remote_debugging_port}',
-            f'--user-data-dir={self.user_data_dir}'
+            chrome_path,
+            f'--remote-debugging-port={remote_debugging_port}',
+            f'--user-data-dir={user_data_dir}'
         ])
+        
+        # 给Chrome一些时间来启动
         start_time = time.time()
         max_wait_time = 4
         while self.chrome_process.poll() is None:
             if time.time() - start_time > max_wait_time:
                 break
             time.sleep(0.5)
+        
+        # 设置Selenium连接到正在运行的调试模式下的Chrome实例
+        options = webdriver.ChromeOptions()
+        options.debugger_address = f"localhost:{remote_debugging_port}"
+        self.driver = webdriver.Chrome(options=options)
         
 
     def stop_chrome_debugging(self):
@@ -70,21 +85,7 @@ class ProductScraper:
             print("Page load timed out after waiting.")
                     
 
-    def get_multiple_product_details(self, urls):
-        options = webdriver.ChromeOptions()
-        options.debugger_address = f"localhost:{self.remote_debugging_port}"
-        self.driver = webdriver.Chrome(options=options)
-        product_details = []
-        
-        for url in urls:
-            print(url)
-            data = self.get_product_details(url)
-            if data:
-                product_details.append(data)
-                print(data)
-            time.sleep(5)
-        self.driver.quit()
-        return product_details
+
 
     #获取店铺的地址
     def get_shop_link(self):
@@ -99,41 +100,109 @@ class ProductScraper:
                 parsed_url = urlparse(href)
                 domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
                 domains.add(domain)
-        return domains  # 你可以根据需要返回或处理这个集合
+        return str(domains)  # 你可以根据需要返回或处理这个集合
             
     
-    def get_product_details(self, url):
-        self.driver.get(url)
-        time.sleep(3)
-        self.wait_for_page_load_complete()
-        self.driver.execute_script("window.scrollBy(0, 400);")
-        #产品标题
-        title = self.driver.title
-        company_element = self.driver.find_element(By.CSS_SELECTOR, "#hd_0_container_0 > div:nth-child(1) > div:nth-child(2) > div > div:nth-child(1) > div:nth-child(3) > div > div:nth-child(1) > span")
-        #公司名称
-        company_name = company_element.text.strip()
-        #store_links
-        shop_link = self.get_shop_link()
-        
-        #产品的SKU价格信息
-        sku_data =self.sku_details(url)
-        
-        attributes = self.get_product_attributes()
-        
-        print(f"title: ---- {title}")
-        print(f"company name ---- {company_name}")
-        print(f"shop_link ---- {shop_link}")
-        print(f"sku_data ----{sku_data}")
-        print(f"attributes ----{attributes}")
-        print("----------------------------------")
-        
+    def get_product_details(self,cursor, url):
+        retry = 0
+        while True:  # 循环直到成功获取产品信息
+            try:
+                self.driver.get(url)
+                time.sleep(3)
+                self.wait_for_page_load_complete()
+                self.driver.execute_script("window.scrollBy(0, 400);")
 
+                # 产品标题
+                title = str(self.driver.title)
+                company_element = self.driver.find_element(By.CSS_SELECTOR, "#hd_0_container_0 > div:nth-child(1) > div:nth-child(2) > div > div:nth-child(1) > div:nth-child(3) > div > div:nth-child(1) > span")
+                # 公司名称
+                company_name = str(company_element.text.strip())
+                # store_links
+                shop_link = self.get_shop_link()
 
+                # 产品的SKU价格信息
+                sku_data = self.sku_details(url)
 
-    def execute_detail(self, urls):
-        self.start_chrome_with_debugging()
-        self.get_multiple_product_details(urls)
-    
+                attributes = self.get_product_attributes()
+                print(f"title: ---- {title}")
+                print(f"company_name ---- {company_name}")
+                print(f"shop_link ---- {shop_link}")
+                print(f"sku_data ----{sku_data}")
+                print(f"attributes ----{attributes}")
+                print("----------------------------------")
+
+                update_query = f"""
+                UPDATE switch
+                SET 
+                    title = ?,
+                    company_name = ?,
+                    shop_link = ?,
+                    sku_data = ?,
+                    attributes = ?,
+                    check_status = 1
+                WHERE product_link = ?;
+                """
+                
+                # 执行更新操作
+                cursor.execute(update_query, (title,company_name,shop_link,sku_data,attributes,url))
+                
+
+                break  # 成功获取信息后跳出循环
+
+            except Exception as e:
+                print(f"Error encountered: {e}")
+                
+                # 在异常处理块中展开提示逻辑
+                root = tk.Tk()
+                root.title("操作提示")  # 设置窗口标题
+                
+                # 创建一个标签，提示用户手动操作
+                label = tk.Label(root, text="检测到验证码，请手动解决问题后点击确定继续。")
+                label.pack(padx=20, pady=20)
+                
+                # 标记用户的选择
+                user_choice = tk.StringVar(value="repeat")  # 初始值为 "repeat"
+            
+                def on_repeat():
+                    user_choice.set("repeat")
+                    root.quit()
+            
+                def on_skip():
+                    user_choice.set("skip")
+                    root.quit()
+            
+                # 创建 "重复" 按钮
+                repeat_button = tk.Button(root, text="重复", command=on_repeat)
+                repeat_button.pack(side="left", padx=10, pady=10)
+            
+                # 创建 "跳过" 按钮
+                skip_button = tk.Button(root, text="跳过", command=on_skip)
+                skip_button.pack(side="right", padx=10, pady=10)
+            
+                # 进入事件循环，等待用户点击“重复”或“跳过”
+                root.mainloop()
+            
+                # 根据用户选择执行不同的操作
+                if user_choice.get() == "repeat":
+                    # 当用户点击按钮后，销毁窗口
+                    root.destroy()
+                else:
+                    # 当用户点击按钮后，销毁窗口
+                    root.destroy()
+                    update_query = f"""
+                    UPDATE switch
+                    SET 
+                        check_status = 2
+                    WHERE product_link = ?;
+                    """
+                    
+                    # 执行更新操作
+                    cursor.execute(update_query, (url,))
+                    break  # 用户选择跳过，跳出循环
+            
+
+                            
+
     
     #获取产品的SKU价格
     def sku_details(self, url): 
@@ -178,16 +247,11 @@ class ProductScraper:
         # 如果两种方法都未找到，进行错误处理
         else:
             print("Both methods failed. Please check if verification is required.")
-            self.alert_and_wait()
-            self.get_product_details(url)
-        return sku_data
 
 
-    def alert_and_wait(self):        
-        root = tk.Tk()
-        root.withdraw()  # 隐藏主窗口
-        messagebox.showinfo("操作提示", "无法获取SKU信息，请检查是否有验证码或其他问题需要手动解决后点击确定重新爬取。")
-        root.destroy()
+        return str(sku_data)
+
+     
 
     
     def get_product_attributes(self):
@@ -222,29 +286,30 @@ class ProductScraper:
                     product_attributes[attr_name] = attr_value
         except:
             print("offer-attr-wrapper or offer-attr-item elements found.")
-        return product_attributes
-
-# 使用示例：
-# from selenium import webdriver
-# driver = webdriver.Chrome()
-# your_instance = YourClassName(driver)
-# attributes = your_instance.get_product_attributes()
-# print(attributes)
+        return str(product_attributes)
 
 
 
 
 if __name__ == '__main__':
-    urls = [
-        "https://detail.1688.com/offer/717125263963.html",
-        "https://detail.1688.com/offer/741613702911.html",
-        "https://detail.1688.com/offer/821154986517.html",
-        "https://detail.1688.com/offer/729233690815.html",
-        "https://detail.1688.com/offer/773959819091.html",
-        "https://detail.1688.com/offer/673053584921.html"
-    ]
+    current_dir = os.path.dirname(__file__)
+    root_dir = os.path.dirname(current_dir)
+    db_path = os.path.join(root_dir, "switch.db")  # Database file path
+    # Connect to SQLite database (or create it if it doesn't exist)
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # 执行查询，提取 check = 0 的所有 url
+    cursor.execute("SELECT product_link FROM switch WHERE check_status = 0;")
+    urls = cursor.fetchall()    
+    
     scraper = ProductScraper()
-    scraper.execute_detail(urls)
-    print("All URLs checked, waiting 20 seconds before closing the browser...")
-    time.sleep(20)
+    scraper.start_chrome_with_debugging()
+    for url in urls:
+        print(url[0])
+        scraper.get_product_details(cursor,url[0])
+        conn.commit()
+    print("All URLs checked, waiting 10 seconds before closing the browser...")
+    time.sleep(10)
     scraper.stop_chrome_debugging()
+    conn.close()
+    
