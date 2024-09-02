@@ -207,29 +207,37 @@ class ProductScraper:
     #获取产品的SKU价格
     def sku_details(self, url): 
         sku_data = []
+        
         try:
-            # 尝试查找 selector-table
-            sku_table = self.driver.find_elements(By.CLASS_NAME, "selector-table")
+            summary_num_element = self.driver.find_element(By.CLASS_NAME, "summary-num")
+            summary_num_value = int(summary_num_element.text.strip())
         except Exception as e:
-            sku_table = []
+            summary_num_value = 0
         try:
             # 尝试查找 pc-sku-wrapper
             sku_wrapper = self.driver.find_elements(By.CLASS_NAME, "pc-sku-wrapper")
         except Exception as e:
-            sku_wrapper = []     
+            sku_wrapper = [] 
+            
+        try:
+            price_text = self.driver.find_elements(By.CLASS_NAME, "price-text") 
+        except:
+            price_text =[]
         # 如果找到了 selector-table，则获取 SKU 信息
-        if sku_table:
+        if summary_num_value>0:
+            print('类型1')
+            sku_table = self.driver.find_elements(By.CLASS_NAME, "selector-table")
             sku_table = sku_table[0]  # 因为 find_elements 返回列表，这里取第一个元素
             header_elements = sku_table.find_elements(By.CSS_SELECTOR, "div.next-table-header-inner th")
             headers = [header.text for header in header_elements]
             body_elements = sku_table.find_elements(By.CSS_SELECTOR, "div.next-table-body table tbody tr.next-table-row")
-            summary_num_element = self.driver.find_element(By.CLASS_NAME, "summary-num")
-            summary_num_value = int(summary_num_element.text.strip())
+
             for row in zip(body_elements, range(summary_num_value)):
                 row_dict = {headers[i]: cell.text for i, cell in enumerate(row[0].find_elements(By.TAG_NAME, "td"))}
                 sku_data.append(row_dict)
         # 如果没有找到 selector-table，但找到了 pc-sku-wrapper，则获取 SKU 信息
         elif sku_wrapper:
+            print('类型2')
             sku_wrapper = sku_wrapper[0]  # 取第一个元素
             # 尝试展开隐藏的 SKU 项
             expand_button = self.driver.find_elements(By.CLASS_NAME, "sku-wrapper-expend-button")
@@ -244,9 +252,17 @@ class ProductScraper:
                 price = sku_item.find_element(By.CLASS_NAME, "discountPrice-price").text.strip()
                 row_dict = {"product_name": name, "price": price}
                 sku_data.append(row_dict)
+        #看看有没有价格:
+        elif price_text:
+            print('类型3')
+            price = price_text[0].text.strip()
+            name = str(self.driver.title)
+            row_dict = {"product_name": name, "price": price}
+            sku_data.append(row_dict)
+        
         # 如果两种方法都未找到，进行错误处理
         else:
-            print("Both methods failed. Please check if verification is required.")
+            print("all methods failed. Please check if verification is required.")
 
 
         return str(sku_data)
