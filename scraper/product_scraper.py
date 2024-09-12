@@ -150,7 +150,7 @@ class ProductScraper:
                 break  # 成功获取信息后跳出循环
 
             except Exception as e:
-                print(f"Error encountered: {e}")
+                print(f"Error encountered: {traceback.print_exc()}")
                 
                 # 在异常处理块中展开提示逻辑
                 root = tk.Tk()
